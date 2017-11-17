@@ -156,9 +156,9 @@ if __name__ == "__main__":
     lambda_, beta_a = Variable(torch.randn(1)),Variable(torch.randn(1))
     x = Variable(torch.Tensor(10,1,28,28))
     c = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=5,stride=2)
-    y = c(x)#128,32,12,12
+    y = c(x)#10,32,12,12
     model = PrimaryCaps(B=32)
-    y =model(y) #128,32*17,12,12
+    y =model(y) #10,32*17,12,12
     convcaps1 = ConvCaps()
-    out = convcaps1(y,beta_v,beta_a,lambda_) #128,5,5,32,16/1
+    out = convcaps1(y,beta_v,beta_a,lambda_) #10,32*17,5,5
     print(out.size())
