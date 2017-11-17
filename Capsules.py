@@ -113,9 +113,6 @@ class ConvCaps(nn.Module):
             mus = torch.cat(mus,1).view(-1,width_out,width_out,self.C,16) #b,5,5,C,16
             sigmas = torch.cat(sigmas,1).view(-1,width_out,width_out,self.C,16) #b,5,5,C,16
             activations = torch.cat(activations,1).view(-1,width_out,width_out,self.C) #b,5,5,C
-#            assert mus.size() == (b,5,5,self.C,16)
-#            assert sigmas.size() == (b,5,5,self.C,16)
-#            assert activations.size() == (b,5,5,self.C)
             #E-step
             for i in range(width_in):
                 #compute the x axis range of capsules c that i connect to.
@@ -128,7 +125,7 @@ class ConvCaps(nn.Module):
                     y_range = (max(floor((j-self.K)/self.stride)+1,0),min(j//self.stride+1,width_out))
                     if y_range[0]>= y_range[1]:
                         continue
-                    print(i,j)
+#                    print(i,j)
                     for typ in range(self.B):                 
                         mu = mus[:,x_range[0]:x_range[1],y_range[0]:y_range[1],:,:] #b,u,v,C,16
                         sigma = sigmas[:,x_range[0]:x_range[1],y_range[0]:y_range[1],:,:] #b,u,v,C,16
@@ -147,19 +144,21 @@ class ConvCaps(nn.Module):
                         r = a*p/torch.sum(a*p)
                         R[:,typ,i,j,x_range[0]:x_range[1],        #b,u,v,C
                           y_range[0]:y_range[1],:] = r
-        return activations, mus
+        
+        mus = mus.permute(0,3,4,1,2).contiguous().view(b,self.C*16,width_out,-1)
+        activations = activations.permute(0,3,1,2).contiguous().view(b,self.C*1,width_out,-1)
+        output = torch.cat([mus,activations], 1) #b,C*17,5,5
+        return output
                         
-                        
-   
 
 if __name__ == "__main__":
     beta_v = Variable(torch.randn(1))
     lambda_, beta_a = Variable(torch.randn(1)),Variable(torch.randn(1))
-    x = Variable(torch.Tensor(128,1,28,28))
+    x = Variable(torch.Tensor(10,1,28,28))
     c = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=5,stride=2)
     y = c(x)#128,32,12,12
     model = PrimaryCaps(B=32)
     y =model(y) #128,32*17,12,12
     convcaps1 = ConvCaps()
-    activations,mus = convcaps1(y,beta_v,beta_a,lambda_) #128,5,5,32,16/1
-    print(mus.size(),activations.size())
+    out = convcaps1(y,beta_v,beta_a,lambda_) #128,5,5,32,16/1
+    print(out.size())
