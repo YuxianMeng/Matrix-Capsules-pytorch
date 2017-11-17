@@ -6,5 +6,5 @@ The ClassCapsules in the paper is actually a special case of ```ConvCaps``` with
 
 ## TODO
 * run this model on a dataset
-* using more matrix operation rather than '''for''' iteration.
+* using more matrix operation rather than ```for``` iteration.
 
