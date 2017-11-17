@@ -79,12 +79,9 @@ class ConvCaps(nn.Module):
         W_hat = W[None,:,:,:,None,None,:,:,:]         #1,K,K,B,1,1,C,4,4
         poses_hat = poses.unsqueeze(6)                     #b,K,K,B,5,5,1,4,4
         
-#        print(W_hat.size(),poses_hat.size())
         votes = torch.matmul(W_hat, poses_hat) #b,K,K,B,5,5,C,4,4
         votes = votes.permute(0,3,1,2,4,5,6,7,8).contiguous()#b,B,K,K,5,5,C,4,4
         assert votes.size() == (b,self.B,self.K,self.K,width_out,width_out,self.C,4,4)
-#        return votes
-#        votes = Variable(torch.randn(b,self.B,self.K,self.K,5,5,self.C,4,4))
         #Start EM   
         #b,B,12,12,5,5,32
         R = Variable(torch.ones(b,self.B,width_in,width_in,width_out,width_out,self.C))/(width_out*width_out*self.C)
@@ -101,18 +98,14 @@ class ConvCaps(nn.Module):
                                 self.stride*j:self.stride*j+self.K,i,j,typ]
                         a = activation[:,:,self.stride*i:self.stride*i+self.K,
                                 self.stride*j:self.stride*j+self.K] #b,B,K,K
-#                        print(r.size(),a.size())
                         r_hat = r*a #b,B,K,K
                         sum_r_hat = torch.sum(r_hat[0])
                         r_hat_stack = torch.stack([r_hat]*16, dim=-1).view(b,-1,16) #b,B*K*K,16
-#                        print(r_hat_stack.size(),votes[:,:,:,:,i,j,typ,:,:].size())
                         V = votes[:,:,:,:,i,j,typ,:,:].contiguous().view(b,-1,16) #b,B*K*K,16
                         mu = torch.sum(r_hat_stack*V, 1, True)/sum_r_hat # b,1,16
                         mu_stack = torch.cat([mu]*self.B*self.K*self.K,dim=1) #b,B*K*K,16
                         sigma = torch.sum(r_hat_stack*(V-mu_stack)**2,1,True)/sum_r_hat #b,1,16
-#                        print(sigma.size())
                         cost = (beta_v + torch.log(sigma)) * sum_r_hat #b,1,16
-#                        print(cost.size())
                         a_c = torch.sigmoid(lambda_*(beta_a-torch.sum(cost,2))) #b,1
                         mus.append(mu)
                         sigmas.append(sigma)
@@ -120,26 +113,20 @@ class ConvCaps(nn.Module):
             mus = torch.cat(mus,1).view(-1,width_out,width_out,self.C,16) #b,5,5,C,16
             sigmas = torch.cat(sigmas,1).view(-1,width_out,width_out,self.C,16) #b,5,5,C,16
             activations = torch.cat(activations,1).view(-1,width_out,width_out,self.C) #b,5,5,C
-#            mus = Variable(torch.randn((b,5,5,self.C,16)))
-#            sigmas = Variable(torch.randn((b,5,5,self.C,16)))
-#            activations = Variable(torch.randn((b,5,5,self.C)))
-            assert mus.size() == (b,5,5,self.C,16)
-            assert sigmas.size() == (b,5,5,self.C,16)
-            assert activations.size() == (b,5,5,self.C)
-#            return mus,sigmas,activations
+#            assert mus.size() == (b,5,5,self.C,16)
+#            assert sigmas.size() == (b,5,5,self.C,16)
+#            assert activations.size() == (b,5,5,self.C)
             #E-step
             for i in range(width_in):
                 #compute the x axis range of capsules c that i connect to.
                 x_range = (max(floor((i-self.K)/self.stride)+1,0),min(i//self.stride+1,width_out))
                 #without padding, some capsules i may not be convolutional layer catched, in mnist case, i or j == 11
                 if x_range[0]>=x_range[1]: 
-#                    print("x:{}".format(i), x_range)
                     continue
                 u = len(range(*x_range))
                 for j in range(width_in):
                     y_range = (max(floor((j-self.K)/self.stride)+1,0),min(j//self.stride+1,width_out))
                     if y_range[0]>= y_range[1]:
-#                        print(j)
                         continue
                     print(i,j)
                     for typ in range(self.B):                 
