@@ -32,7 +32,7 @@ class PrimaryCaps(nn.Module):
         activations = [self.capsules_activation[i](x) for i in range(self.B)] #(b,1,12,12)*32
         activations = torch.cat(activations, dim=1) #b,32,12,12
         output = torch.cat([poses, activations], dim=1)
-        return output
+        return F.relu(output)
 
 class ConvCaps(nn.Module):
     def __init__(self, B=32, C=32, kernel = 3, stride=2,iteration=3,
