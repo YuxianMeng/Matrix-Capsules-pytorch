@@ -119,7 +119,7 @@ class ConvCaps(nn.Module):
 #                        print(mu[0,0,:])
                         sigma = torch.sum(r_hat_stack*(V-mu_stack)**2,1,True)/sum_r_hat #b,1,16
 #                        print(sigma[0,0,:])
-#                        sigma = sigma.clamp(0.01) #prevent nan
+                        sigma = sigma.clamp(0.01) #prevent nan
 #                        print(sigma)
 #                        break
                         cost = (self.beta_v + torch.log(sigma)) * sum_r_hat #b,1,16
@@ -174,8 +174,9 @@ class ConvCaps(nn.Module):
                         R[:,typ,i,j,x_range[0]:x_range[1],        #b,u,v,C
                           y_range[0]:y_range[1],:] = r
         
-        mus = mus.permute(0,3,4,1,2).contiguous().view(b,self.C*16,width_out,-1)
-        activations = activations.permute(0,3,1,2).contiguous().view(b,self.C*1,width_out,-1)
+        mus = mus.permute(0,3,4,1,2).contiguous().view(b,self.C*16,width_out,-1)#b,16*C,5,5
+        activations = activations.permute(0,3,1,2).contiguous().view(b,self.C*1,width_out,-1) #b,C,5,5
+#        print(activations)
         output = torch.cat([mus,activations], 1) #b,C*17,5,5
         return output
                         
@@ -194,5 +195,6 @@ if __name__ == "__main__":
     x = F.relu(Variable(torch.randn(2,32*17,3,3)))
     model = ConvCaps(B=32, C=10, kernel = 3, stride=1,iteration=3,
                      coordinate_add=True, transform_share = True)
-    y = model(x,lambda_).squeeze().view(2,10,17) #2,10,17
-#    print(y[:,:,-1])
+    y = model(x,lambda_).squeeze() #b,10*16+10
+    acts = y[:,-10:]
+    print(acts)
