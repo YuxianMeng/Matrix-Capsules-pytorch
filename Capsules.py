@@ -5,7 +5,9 @@ The Capsules layer.
 
 @author: Yuxian Meng
 '''
-#TODO:vectorize;use tensor.expand rather than stack the same tensors
+#TODO: vectorize E step in EM algorithm, may need padding input so 
+# as to make sure every capsule i get feed back from same number of capsule c,
+# but this is not consistent with paper's discription.
 
 
 import torch
@@ -13,16 +15,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 from math import floor, pi
 from torch.autograd import Variable
+import numpy as np
 
-import time
+from time import time
+
 class PrimaryCaps(nn.Module):
-    def __init__(self,B=32):
+    def __init__(self,A=32, B=32):
         super(PrimaryCaps, self).__init__()
         self.B = B
-        self.capsules_pose = nn.ModuleList([nn.Conv2d(in_channels=32,out_channels=4*4,
+        self.capsules_pose = nn.ModuleList([nn.Conv2d(in_channels=A,out_channels=4*4,
                                                  kernel_size=1,stride=1) 
                                                  for i in range(self.B)])
-        self.capsules_activation = nn.ModuleList([nn.Conv2d(in_channels=32,out_channels=1,
+        self.capsules_activation = nn.ModuleList([nn.Conv2d(in_channels=A,out_channels=1,
                                                  kernel_size=1,stride=1) for i 
                                                  in range(self.B)])
 
@@ -30,9 +34,9 @@ class PrimaryCaps(nn.Module):
         poses = [self.capsules_pose[i](x) for i in range(self.B)]#(b,16,12,12) *32
         poses = torch.cat(poses, dim=1) #b,16*32,12,12
         activations = [self.capsules_activation[i](x) for i in range(self.B)] #(b,1,12,12)*32
-        activations = torch.cat(activations, dim=1) #b,32,12,12
+        activations = F.sigmoid(torch.cat(activations, dim=1)) #b,32,12,12
         output = torch.cat([poses, activations], dim=1)
-        return F.relu(output)
+        return output
 
 class ConvCaps(nn.Module):
     def __init__(self, B=32, C=32, kernel = 3, stride=2,iteration=3,
@@ -40,12 +44,12 @@ class ConvCaps(nn.Module):
         super(ConvCaps, self).__init__()
         self.B =B
         self.C=C
-        self.K=kernel
+        self.K=kernel # kernel = 0 means full receptive field like class capsules
         self.stride = stride
         self.coordinate_add=coordinate_add
         self.transform_share = transform_share
         self.beta_v = nn.Parameter(torch.randn(1))
-        self.beta_a = nn.Parameter(torch.randn(1)) 
+        self.beta_a = nn.Parameter(torch.randn(C)) #TODO: make sure whether beta_a depend on c 
         if not transform_share:
             self.W = nn.Parameter(torch.randn(kernel,kernel, 
                 self.B, self.C, 4, 4)) #K*K*B*C*4*4
@@ -54,18 +58,21 @@ class ConvCaps(nn.Module):
         self.iteration=iteration
 
     def forward(self, x, lambda_,):
+#        t = time()
         b =  batch_size = x.size(0)
         use_cuda = next(self.parameters()).is_cuda
-        if self.transform_share:
-            W = torch.stack([self.W]*self.K**2,0).view(self.K,self.K,self.B,self.C,4,4)
-        else:
-            W = self.W
         pose = x[:,:-self.B,:,:] #b,16*32,12,12
         activation = x[:,-self.B:,:,:] #b,32,12,12                    
         width_in = x.size(2)  #12
-        width_out = int((width_in-self.K)/self.stride+1) #5
+        w = width_out = int((width_in-self.K)/self.stride+1) if self.K else 1 #5
+        if self.transform_share:
+            if self.K == 0:
+                self.K = width_in # class Capsules
+            W = self.W.view(1,1,self.B,self.C,4,4).expand(self.K,self.K,self.B,self.C,4,4).contiguous()
+        else:
+            W = self.W
         
-        # Coordinate Addition
+        #TODO:Coordinate Addition should add to vote rather than pose 
         if self.coordinate_add:
             add = Variable(torch.Tensor([[[i/width_in,j/width_in] for i in range(width_in)] 
                                 for j in range(width_in)])).permute(2,0,1).contiguous().view(1,2,width_in,width_in) #1,2,12,12
@@ -89,44 +96,51 @@ class ConvCaps(nn.Module):
         
         votes = torch.matmul(W_hat, poses_hat) #b,K,K,B,5,5,C,4,4
         votes = votes.permute(0,3,1,2,4,5,6,7,8).contiguous()#b,B,K,K,5,5,C,4,4
-#        return votes
-#        print(votes)
-#        assert votes.size() == (b,self.B,self.K,self.K,width_out,width_out,self.C,4,4)
+#        print(time()-t)
         #Start EM   
         #b,B,12,12,5,5,32
-        R = Variable(torch.ones(b,self.B,width_in,width_in,width_out,width_out,self.C))/(width_out*width_out*self.C)
-        if use_cuda:
-            R = R.cuda()
+        R = np.ones([b,self.B,width_in,width_in,width_out,width_out,self.C])/(width_out*width_out*self.C)
+
         for iterate in range(self.iteration):
-            mus = []
-            sigmas = []
-            activations = []  
-            
+#            t = time()
             #M-step
+            r_s,a_s,V_s = [],[],[]            
             for i in range(width_out):
                 for j in range(width_out):
                     for typ in range(self.C):
-                        r = R[:,:,self.stride*i:self.stride*i+self.K,  #b,B,K,K  
+                        r = R[:,:,self.stride*i:self.stride*i+self.K,  #b,B,K,K
                                 self.stride*j:self.stride*j+self.K,i,j,typ]
+                        r = Variable(torch.from_numpy(r).float())
+                        if use_cuda:
+                            r = r.cuda()
+                        r_s.append(r)
                         a = activation[:,:,self.stride*i:self.stride*i+self.K,
                                 self.stride*j:self.stride*j+self.K] #b,B,K,K
-                        r_hat = r*a #b,B,K,K
-                        sum_r_hat = torch.sum(r_hat.view(b,-1),1).view(b,1,1).expand(b,1,16) #b,1,16
-                        r_hat_stack = torch.stack([r_hat]*16, dim=-1).view(b,-1,16) #b,B*K*K,16
+                        a_s.append(a)
                         V = votes[:,:,:,:,i,j,typ,:,:].contiguous().view(b,-1,16) #b,B*K*K,16
-                        mu = torch.sum(r_hat_stack*V, 1, True)/sum_r_hat # b,1,16
-                        mu_stack = torch.cat([mu]*self.B*self.K*self.K,dim=1) #b,B*K*K,16
-                        sigma = torch.sum(r_hat_stack*(V-mu_stack)**2,1,True)/sum_r_hat #b,1,16
-                        sigma = sigma.clamp(0.01) #prevent nan
-                        cost = (self.beta_v + torch.log(sigma)) * sum_r_hat #b,1,16
-                        a_c = torch.sigmoid(lambda_*(self.beta_a-torch.sum(cost,2))) #b,1
-                        mus.append(mu)
-                        sigmas.append(sigma)
-                        activations.append(a_c)
-            mus = torch.cat(mus,1).view(-1,width_out,width_out,self.C,16) #b,5,5,C,16
-            sigmas = torch.cat(sigmas,1).view(-1,width_out,width_out,self.C,16) #b,5,5,C,16
-            activations = torch.cat(activations,1).view(-1,width_out,width_out,self.C) #b,5,5,C
+                        V_s.append(V)
 
+            wwC = w*w*self.C
+            kkB = self.K*self.K*self.B
+            r_s = torch.stack(r_s,-1).view(b, self.B, self.K, -1) #b,B,K,K,wwC
+            a_s = torch.stack(a_s,-1).view(b, self.B, self.K, -1) #b,B,K,K,wwC
+            V_s = torch.stack(V_s,-1).view(b,kkB,16,wwC) #b,kkB,16,wwC
+            r_hat = r_s*a_s #b,B,K,K,wwC
+            r_hat = r_hat.clamp(0.01) #prevent nan since we'll devide sth. by r_hat
+            sum_r_hat = torch.sum(r_hat.view(b,-1,wwC),1).view(b,1,1,wwC).expand(b,1,16,wwC) #b,1,16,wwC
+            r_hat_stack = r_hat.view(b,-1,1,wwC).expand(b, kkB, 16, wwC) #b,kkB,16,wwC
+            mu = torch.sum(r_hat_stack*V_s, 1, True)/sum_r_hat #b,1,16,wwC
+            mu_stack = mu.expand(b,kkB,16,wwC) #b,kkB,16,wwC
+            sigma = torch.sum(r_hat_stack*(V_s-mu_stack)**2,1,True)/sum_r_hat #b,1,16,wwC           
+            sigma = sigma.clamp(0.01) #prevent nan since the following is a log(sigma)
+            cost = (self.beta_v + torch.log(sigma)) * sum_r_hat #b,1,16,wwC
+            beta_a_stack = self.beta_a.view(1,1,1,self.C).expand(b,w,w,self.C).contiguous().view(b,1,wwC)
+            a_c = torch.sigmoid(lambda_*(beta_a_stack-torch.sum(cost,2))) #b,1,wwC           
+            mus = mu.permute(0,3,1,2).contiguous().view(b,w,w,self.C,16)
+            sigmas = sigma.permute(0,3,1,2).contiguous().view(b,w,w,self.C,16)
+            activations = a_c.permute(0,2,1).contiguous().view(b,w,w,self.C)
+#            print(time()-t)
+#            t = time()
             #E-step
             for i in range(width_in):
                 #compute the x axis range of capsules c that i connect to.
@@ -156,28 +170,13 @@ class ConvCaps(nn.Module):
                         p = torch.exp(-(V-mu)**2)/torch.sqrt(2*pi*sigma) #b,u,v,C,16
                         p = p.prod(dim=4)#b,u,v,C
                         p_hat = a*p  #b,u,v,C
-#                        print(p_hat[0,0,0,0])
-#                        break
                         sum_p_hat = torch.sum(p_hat.view(b,-1),1).view(b,1,1,1).expand(b,u,v,self.C)
-#                        print(sum_p_hat.size())
                         r = p_hat/sum_p_hat #b,u,v,C --> R: b,B,12,12,5,5,32
-#                        print(r)
-#                        R_temp = Variable(torch.zeros(1)).view(1,1,1,1,1,1,1).expand(R.size()).contiguous()
-#                        if use_cuda:
-#                            R_temp = R_temp.cuda()
-#                        R_temp[:,typ,i,j,x_range[0]:x_range[1],        #b,u,v,C
-#                          y_range[0]:y_range[1],:] = r
-#                        R = R + R_temp
-#                        R[:,typ,i,j,x_range[0]:x_range[1],        #b,u,v,C
-#                          y_range[0]:y_range[1],:] = r
-                        since = time.time()
-                        R_temp = R+0
-                        R_temp[:,typ,i,j,x_range[0]:x_range[1],        #b,u,v,C
-                          y_range[0]:y_range[1],:] = r
-                        R = R_temp
-                        print(time.time()-since)
-                        
-#                        
+                        if use_cuda:
+                            r = r.cpu()
+                        R[:,typ,i,j,x_range[0]:x_range[1],        #b,u,v,C
+                          y_range[0]:y_range[1],:] = r.data.numpy() 
+#            print(time()-t)
         
         mus = mus.permute(0,3,4,1,2).contiguous().view(b,self.C*16,width_out,-1)#b,16*C,5,5
         activations = activations.permute(0,3,1,2).contiguous().view(b,self.C*1,width_out,-1) #b,C,5,5
@@ -187,22 +186,58 @@ class ConvCaps(nn.Module):
                         
 
 if __name__ == "__main__":
-    lambda_ = Variable(torch.Tensor([0.01]))
-    x = Variable(torch.randn(10,1,28,28))
-    c = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=5,stride=2)
-    y = F.relu(c(x))#10,32,12,12
-    model = PrimaryCaps(B=32)
-    y =model(y) #10,32*17,12,12
-    convcaps1 = ConvCaps()
-    out = convcaps1(y,lambda_) #10,32*17,5,5
-#    print(out[:,-2,:,:])
     
-#    x = F.relu(Variable(torch.randn(2,32*17,3,3)))
-#    model = ConvCaps(B=32, C=10, kernel = 3, stride=1,iteration=3,
-#                     coordinate_add=True, transform_share = True)
-#    y = model(x,lambda_).squeeze() #b,10*16+10
+    #test CapsNet      
+    ls = [1e-3,1e-3,1e-4];b = 10;
+    A,B,C,D,E = 64,8,16,16,10
+    conv1 = nn.Conv2d(in_channels=1, out_channels=A,
+                           kernel_size=5, stride=2)
+    primary_caps = PrimaryCaps(A, B)
+    convcaps1 = ConvCaps(B, C, kernel = 3, stride=2,iteration=1,
+                              coordinate_add=False, transform_share = False)
+    convcaps2 = ConvCaps(C, D, kernel = 3, stride=1,iteration=1,
+                              coordinate_add=False, transform_share = False)
+    classcaps = ConvCaps(D, E, kernel = 0, stride=1,iteration=1,
+                              coordinate_add=False, transform_share = True)
+            
+    from torchvision import datasets, transforms        
+    train_dataset = datasets.MNIST(root='./data/',
+                                   train=True,
+                                   transform=transforms.ToTensor(),
+                                   download=True)
+
+
+    # Data Loader (Input Pipeline)
+    train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
+                                               batch_size=b,
+                                               shuffle=True)
+    for x,y in train_loader:
+        x = Variable(x) #b,1,28,28
+#        print(x[:,:,14:19,14])
+        x = F.relu(conv1(x)) #b,A,12,12
+#        print(x[:,-10:,6,6])
+        x = primary_caps(x) #b,B*(4*4+1),12,12
+        print(x[:,-10:,6,6])
+        x = convcaps1(x,ls[0]) #b,C*(4*4+1),5,5
+        print(x[:,-10:,3,3])
+        x = convcaps2(x,ls[1]) #b,D*(4*4+1),3,3
+        print(x[:,-10:,0,0])
+        x = classcaps(x,ls[2]).view(-1,10*16+10) #b,E*16+E     
+        print(x[:,-E:])
+        break
+    
+    #test Class Capsules
+#    x = F.sigmoid(Variable(torch.randn(b,32*17,3,3)))
+#    model = ConvCaps(B=32, C=10, kernel = 0, stride=1,iteration=3,
+#                     coordinate_add=False, transform_share = True)
+#    y = model(x,l1).squeeze() #b,10*16+10
 #    acts = y[:,-10:]
 #    print(acts)
-#    a = model(x,lambda_)
-#    a = torch.sum(a)
-#    a.backward()
+
+#    test Conv Capsules
+#    x = F.sigmoid(Variable(torch.randn(b,32*17,12,12)))
+#    print(x[:,-10:,0,0])
+#    model = ConvCaps(B=32, C=32, kernel = 3, stride=2,iteration=3,
+#                     coordinate_add=False, transform_share = False)
+#    y = model(x,l1) #b,C*16+C,width_out,width_out
+#    print(y[:,-10:,0,0])
