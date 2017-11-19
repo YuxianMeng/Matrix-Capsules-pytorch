@@ -1,5 +1,5 @@
 # Matrix-Capsules-pytorch
-This is a pytorch implementation of [Matrix Capsules with EM routing](https://arxiv.org/abs/1710.09829)
+This is a pytorch implementation of [Matrix Capsules with EM routing](https://openreview.net/pdf?id=HJWLfGWRb)
 
 In ```Capsules.py```, there are two implemented classes: ```PrimaryCaps``` and ```ConvCaps```.
 The ClassCapsules in the paper is actually a special case of ```ConvCaps``` with whole receptive field, transformation matrix sharing and Coordinate Addition.
