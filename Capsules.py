@@ -71,18 +71,7 @@ class ConvCaps(nn.Module):
             W = self.W.view(1,1,self.B,self.C,4,4).expand(self.K,self.K,self.B,self.C,4,4).contiguous()
         else:
             W = self.W
-        
-        #TODO:Coordinate Addition should add to vote rather than pose 
-        if self.coordinate_add:
-            add = Variable(torch.Tensor([[[i/width_in,j/width_in] for i in range(width_in)] 
-                                for j in range(width_in)])).permute(2,0,1).contiguous().view(1,2,width_in,width_in) #1,2,12,12
-            add = torch.cat([add, Variable(torch.zeros(1,16-2,width_in,width_in))],1) #1,16,12,12
-            add = add.expand(b,16,width_in,width_in).contiguous() #b,16,12,12
-            add = add.view(b,16,1,width_in,width_in).expand(b,16,self.B,width_in,width_in).contiguous().view(b,16*self.B,width_in,width_in)
-            if use_cuda:
-                add = add.cuda()
-            pose = pose + add
-#        return pose
+            
         poses = [] #used to store every capsule i's poses in each capsule c's receptive field
         poses = [torch.cat([pose[:,:,self.stride*i:self.stride*i+self.K,
                        self.stride*j:self.stride*j+self.K].unsqueeze(-1)   #b,16*32,3,3,1 
@@ -96,6 +85,24 @@ class ConvCaps(nn.Module):
         
         votes = torch.matmul(W_hat, poses_hat) #b,K,K,B,5,5,C,4,4
         votes = votes.permute(0,3,1,2,4,5,6,7,8).contiguous()#b,B,K,K,5,5,C,4,4
+        
+        #Coordinate Addition
+        add = [] #K,K,w,w
+        if self.coordinate_add:
+            for i in range(self.K):
+                for j in range(self.K):
+                    for x in range(w):
+                        for y in range(w):
+                            #compute where is the V_ic
+                            pos_x = self.stride*x + i
+                            pos_y = self.stride*y + j
+                            add.append([pos_x/width_in, pos_y/width_in])
+            add = Variable(torch.Tensor(add)).view(1,1,self.K,self.K,w,w,1,2)
+            add = add.expand(b,self.B,self.K,self.K,w,w,self.C,2).contiguous()
+            if use_cuda:
+                add = add.cuda()
+            votes[:,:,:,:,:,:,:,0,:2] = votes[:,:,:,:,:,:,:,0,:2] + add
+
 #        print(time()-t)
         #Start EM   
         #b,B,12,12,5,5,32
@@ -141,41 +148,45 @@ class ConvCaps(nn.Module):
             activations = a_c.permute(0,2,1).contiguous().view(b,w,w,self.C)
 #            print(time()-t)
 #            t = time()
+
             #E-step
             for i in range(width_in):
                 #compute the x axis range of capsules c that i connect to.
                 x_range = (max(floor((i-self.K)/self.stride)+1,0),min(i//self.stride+1,width_out))
                 #without padding, some capsules i may not be convolutional layer catched, in mnist case, i or j == 11
-                if x_range[0]>=x_range[1]: 
-                    continue
                 u = len(range(*x_range))
+                if not u: 
+                    continue
                 for j in range(width_in):
                     y_range = (max(floor((j-self.K)/self.stride)+1,0),min(j//self.stride+1,width_out))
-                    if y_range[0]>= y_range[1]:
-                        continue
+
                     v = len(range(*y_range))
-                    for typ in range(self.B):                 
-                        mu = mus[:,x_range[0]:x_range[1],y_range[0]:y_range[1],:,:] #b,u,v,C,16
-                        sigma = sigmas[:,x_range[0]:x_range[1],y_range[0]:y_range[1],:,:] #b,u,v,C,16
-                        V = []; a = []  
-                        for x in range(*x_range):
-                            for y in range(*y_range):
-                                #compute where is the V_ic
-                                pos_x = self.stride*x - i
-                                pos_y = self.stride*y - j
-                                V.append(votes[:,typ,pos_x,pos_y,x,y,:,:,:]) #b,C,16
-                                a.append(activations[:,x,y,:]) #b,C
-                        V = torch.stack(V,dim=1).view(batch_size,u,-1,self.C,16) #b,u,v,C,16
-                        a = torch.stack(a,dim=1).view(batch_size,u,-1,self.C)  #b,u,v,C
-                        p = torch.exp(-(V-mu)**2)/torch.sqrt(2*pi*sigma) #b,u,v,C,16
-                        p = p.prod(dim=4)#b,u,v,C
-                        p_hat = a*p  #b,u,v,C
-                        sum_p_hat = torch.sum(p_hat.view(b,-1),1).view(b,1,1,1).expand(b,u,v,self.C)
-                        r = p_hat/sum_p_hat #b,u,v,C --> R: b,B,12,12,5,5,32
-                        if use_cuda:
-                            r = r.cpu()
-                        R[:,typ,i,j,x_range[0]:x_range[1],        #b,u,v,C
-                          y_range[0]:y_range[1],:] = r.data.numpy() 
+                    if not v:
+                        continue
+                    mu = mus[:,x_range[0]:x_range[1],y_range[0]:y_range[1],:,:].contiguous() #b,u,v,C,16
+                    sigma = sigmas[:,x_range[0]:x_range[1],y_range[0]:y_range[1],:,:].contiguous() #b,u,v,C,16 
+                    mu = mu.view(b,u,v,1,-1,16).expand(b,u,v,self.B,self.C,16).contiguous()#b,u,v,B,C,16
+                    sigma = sigma.view(b,u,v,1,-1,16).expand(b,u,v,self.B,self.C,16).contiguous()#b,u,v,B,C,16            
+                    V, a = [], []                 
+                    for x in range(*x_range):
+                        for y in range(*y_range):
+                            #compute where is the V_ic
+                            pos_x = self.stride*x - i
+                            pos_y = self.stride*y - j
+                            V.append(votes[:,:,pos_x,pos_y,x,y,:,:,:]) #b,B,C,4,4
+                            a.append(activations[:,x,y,:].contiguous().view(b,1,self.C).expand(b,self.B,self.C).contiguous()) #b,B,C
+                    V = torch.stack(V,dim=1).view(b,u,v,self.B,self.C,16) #b,u,v,B,C,16
+                    a = torch.stack(a,dim=1).view(b,u,v,self.B,self.C)  #b,u,v,B,C
+                    p = torch.exp(-(V-mu)**2)/torch.sqrt(2*pi*sigma) #b,u,v,B,C,16
+                    p = p.prod(dim=5)#b,u,v,B,C
+                    p_hat = a*p  #b,u,v,B,C
+                    sum_p_hat = torch.sum(torch.sum(torch.sum(p_hat,1),1),2) #b,B
+                    sum_p_hat = sum_p_hat.view(b,1,1,self.B,1).expand(b,u,v,self.B,self.C)
+                    r = (p_hat/sum_p_hat).permute(0,3,1,2,4) #b,B,u,v,C --> R: b,B,12,12,5,5,32
+                    if use_cuda:
+                        r = r.cpu()
+                    R[:,:,i,j,x_range[0]:x_range[1],        #b,B,u,v,C
+                      y_range[0]:y_range[1],:] = r.data.numpy() 
 #            print(time()-t)
         
         mus = mus.permute(0,3,4,1,2).contiguous().view(b,self.C*16,width_out,-1)#b,16*C,5,5
@@ -198,7 +209,7 @@ if __name__ == "__main__":
     convcaps2 = ConvCaps(C, D, kernel = 3, stride=1,iteration=1,
                               coordinate_add=False, transform_share = False)
     classcaps = ConvCaps(D, E, kernel = 0, stride=1,iteration=1,
-                              coordinate_add=False, transform_share = True)
+                              coordinate_add=True, transform_share = True)
             
     from torchvision import datasets, transforms        
     train_dataset = datasets.MNIST(root='./data/',
@@ -224,7 +235,8 @@ if __name__ == "__main__":
         print(x[:,-10:,0,0])
         x = classcaps(x,ls[2]).view(-1,10*16+10) #b,E*16+E     
         print(x[:,-E:])
-        break
+        a = torch.sum(x)
+        a.backward()
     
     #test Class Capsules
 #    x = F.sigmoid(Variable(torch.randn(b,32*17,3,3)))
