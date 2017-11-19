@@ -77,7 +77,6 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             imgs,labels = data #b,1,28,28; #b
             imgs,labels = Variable(imgs),Variable(labels)
-
             if args.use_cuda:
                 imgs = imgs.cuda()
                 labels = labels.cuda()
@@ -90,10 +89,10 @@ if __name__ == "__main__":
             #stats
             pred = out_labels.max(1)[1] #b
             acc = pred.eq(labels).cpu().sum().data[0]/args.batch_size
-            epoch_acc += acc                          
-            print("loss:{:3}, acc:{:3}".format(loss.data[0],acc))
-#            if b % 10 == 0:
-#                print(out_labels.data[:1],labels.data[:1])
+            epoch_acc += acc
+            if b % args.print_freq == 0:                          
+                print("loss:{:3}, acc:{:3}".format(loss.data[0],acc))
+
         print("Epoch{} acc:{:4}".format(epoch, epoch_acc))
         scheduler.step(epoch_acc)
         torch.save(model.state_dict(), "./model_{}.pth".format(epoch))
