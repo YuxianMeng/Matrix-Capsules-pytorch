@@ -50,13 +50,23 @@ def get_dataloader(args):
 def get_args():
     parser = argparse.ArgumentParser(description='CapsNet')
 
-    parser.add_argument('-batch_size', type=int, default=1)
-    parser.add_argument('-num_epochs', type=int, default=100)
+    parser.add_argument('-batch_size', type=int, default=128)
+    parser.add_argument('-num_epochs', type=int, default=1)
     parser.add_argument('-lr', type=float, default=1e-5)
     parser.add_argument('-clip', type=float, default=5)
-    parser.add_argument('-r', type=int, default=3)
+    parser.add_argument('-r', type=int, default=1)
     parser.add_argument('-use_cuda', default=True)
-#    parser.add_argument('-print_every', type=int, default=10)
+    parser.add_argument('-print_freq', type=int, default=10)
     args = parser.parse_args()
 
     return args
+
+
+if __name__ == "__main__":
+    args = get_args()
+    loader,_ = get_dataloader(args)
+    print(len(loader.dataset))
+    for data in loader:
+        x,y = data
+        print(x[0,0,:,:])
+        break
