@@ -7,7 +7,7 @@ The ClassCapsules in the paper is actually a special case of ```ConvCaps``` with
 In ```train.py```, I define a CapsNet in the paper using classes in ```Capsules.py```, and could be used to train a model for MNIST dataset.
 
 ## Train a small CapsNet on MNIST
-```python train.py -batch_size=64 -use_cuda=True -lr=1e-2 -num_epochs=5 -r=3```
+```python train.py -batch_size=64 -use_cuda=True -lr=2e-2 -num_epochs=5 -r=3```
 
 
 
