@@ -68,6 +68,7 @@ if __name__ == "__main__":
     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'max')
     
     for epoch in range(args.num_epochs):
+        print("Epoch {}".format(epoch))
         b = 0
         epoch_acc = 0
         for data in train_loader:
@@ -91,14 +92,9 @@ if __name__ == "__main__":
             acc = pred.eq(labels).cpu().sum().data[0]/args.batch_size
             epoch_acc += acc
             if b % args.print_freq == 0:                          
-                print("loss:{:3}, acc:{:3}".format(loss.data[0],acc))
+                print("batch:{}, loss:{:3}, acc:{:3}".format(b, loss.data[0],acc))
 
         print("Epoch{} acc:{:4}".format(epoch, epoch_acc))
         scheduler.step(epoch_acc)
         torch.save(model.state_dict(), "./model_{}.pth".format(epoch))
             
-            
-            
-
-        
-        
