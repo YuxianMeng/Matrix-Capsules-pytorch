@@ -52,9 +52,9 @@ def get_args():
 
     parser.add_argument('-batch_size', type=int, default=128)
     parser.add_argument('-num_epochs', type=int, default=1)
-    parser.add_argument('-lr', type=float, default=1e-5)
+    parser.add_argument('-lr', type=float, default=2e-2)
     parser.add_argument('-clip', type=float, default=5)
-    parser.add_argument('-r', type=int, default=1)
+    parser.add_argument('-r', type=int, default=3)
     parser.add_argument('-use_cuda', default=True)
     parser.add_argument('-print_freq', type=int, default=10)
     args = parser.parse_args()
