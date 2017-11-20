@@ -60,12 +60,13 @@ if __name__ == "__main__":
     m = 0.2
     A,B,C,D,E,r = 64,8,16,16,10,1 # a small CapsNet
     model = CapsNet(A,B,C,D,E,r)
-    
+    if args.pretrained:
+        model.load_state_dict(torch.load(args.pretrained))
     if args.use_cuda: 
         model.cuda()
         
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'max')
+    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'max',patience = 1)
     
     for epoch in range(args.num_epochs):
         print("Epoch {}".format(epoch))
@@ -73,8 +74,10 @@ if __name__ == "__main__":
         epoch_acc = 0
         for data in train_loader:
             b += 1
-            lambda_ += 1e-1/steps
-            m += 1e-1/steps
+            if lambda_ < 1:
+                lambda_ += 1e-1/steps
+            if m < 0.9:
+                m += 1e-1/steps
             optimizer.zero_grad()
             imgs,labels = data #b,1,28,28; #b
             imgs,labels = Variable(imgs),Variable(labels)
@@ -92,9 +95,14 @@ if __name__ == "__main__":
             acc = pred.eq(labels).cpu().sum().data[0]/args.batch_size
             epoch_acc += acc
             if b % args.print_freq == 0:                          
-                print("batch:{}, loss:{:3}, acc:{:3}".format(b, loss.data[0],acc))
+                print("batch:{}, loss:{:.4f}, acc:{:.3f}".format(b, loss.data[0],acc))
 
         print("Epoch{} acc:{:4}".format(epoch, epoch_acc))
         scheduler.step(epoch_acc)
         torch.save(model.state_dict(), "./model_{}.pth".format(epoch))
             
+            
+            
+
+        
+        
