@@ -7,7 +7,7 @@ The Capsules layer.
 '''
 #TODO: vectorize E step in EM algorithm, may need padding input so 
 # as to make sure every capsule i get feed back from same number of capsule c,
-# but this is not consistent with paper's discription.
+# but this is not consistent with paper's discription;use stack rather than append
 
 
 import torch
@@ -17,7 +17,7 @@ from math import floor, pi
 from torch.autograd import Variable
 import numpy as np
 
-from time import time
+#from time import time
 
 class PrimaryCaps(nn.Module):
     def __init__(self,A=32, B=32):
@@ -59,10 +59,10 @@ class ConvCaps(nn.Module):
 
     def forward(self, x, lambda_,):
 #        t = time()
-        b =  batch_size = x.size(0)
+        b = x.size(0) #batchsize
         use_cuda = next(self.parameters()).is_cuda
         pose = x[:,:-self.B,:,:] #b,16*32,12,12
-        activation = x[:,-self.B:,:,:] #b,32,12,12                    
+        activation = x[:,-self.B:,:,:] #b,B,12,12                    
         width_in = x.size(2)  #12
         w = width_out = int((width_in-self.K)/self.stride+1) if self.K else 1 #5
         if self.transform_share:
@@ -111,7 +111,7 @@ class ConvCaps(nn.Module):
         for iterate in range(self.iteration):
 #            t = time()
             #M-step
-            r_s,a_s,V_s = [],[],[]            
+            r_s,a_s = [],[]            
             for i in range(width_out):
                 for j in range(width_out):
                     for typ in range(self.C):
@@ -124,14 +124,12 @@ class ConvCaps(nn.Module):
                         a = activation[:,:,self.stride*i:self.stride*i+self.K,
                                 self.stride*j:self.stride*j+self.K] #b,B,K,K
                         a_s.append(a)
-                        V = votes[:,:,:,:,i,j,typ,:,:].contiguous().view(b,-1,16) #b,B*K*K,16
-                        V_s.append(V)
 
             wwC = w*w*self.C
             kkB = self.K*self.K*self.B
             r_s = torch.stack(r_s,-1).view(b, self.B, self.K, -1) #b,B,K,K,wwC
             a_s = torch.stack(a_s,-1).view(b, self.B, self.K, -1) #b,B,K,K,wwC
-            V_s = torch.stack(V_s,-1).view(b,kkB,16,wwC) #b,kkB,16,wwC
+            V_s = votes.view(b,kkB,16,wwC) #b,kkB,16,wwC
             r_hat = r_s*a_s #b,B,K,K,wwC
             r_hat = r_hat.clamp(0.01) #prevent nan since we'll devide sth. by r_hat
             sum_r_hat = torch.sum(r_hat.view(b,-1,wwC),1).view(b,1,1,wwC).expand(b,1,16,wwC) #b,1,16,wwC
@@ -167,7 +165,7 @@ class ConvCaps(nn.Module):
                     sigma = sigmas[:,x_range[0]:x_range[1],y_range[0]:y_range[1],:,:].contiguous() #b,u,v,C,16 
                     mu = mu.view(b,u,v,1,-1,16).expand(b,u,v,self.B,self.C,16).contiguous()#b,u,v,B,C,16
                     sigma = sigma.view(b,u,v,1,-1,16).expand(b,u,v,self.B,self.C,16).contiguous()#b,u,v,B,C,16            
-                    V, a = [], []                 
+                    V = []; a = []                 
                     for x in range(*x_range):
                         for y in range(*y_range):
                             #compute where is the V_ic
@@ -186,7 +184,7 @@ class ConvCaps(nn.Module):
                     if use_cuda:
                         r = r.cpu()
                     R[:,:,i,j,x_range[0]:x_range[1],        #b,B,u,v,C
-                      y_range[0]:y_range[1],:] = r.data.numpy() 
+                      y_range[0]:y_range[1],:] = r.data.numpy()
 #            print(time()-t)
         
         mus = mus.permute(0,3,4,1,2).contiguous().view(b,self.C*16,width_out,-1)#b,16*C,5,5
@@ -228,15 +226,16 @@ if __name__ == "__main__":
         x = F.relu(conv1(x)) #b,A,12,12
 #        print(x[:,-10:,6,6])
         x = primary_caps(x) #b,B*(4*4+1),12,12
-        print(x[:,-10:,6,6])
+#        print(x[:,-10:,6,6])
         x = convcaps1(x,ls[0]) #b,C*(4*4+1),5,5
-        print(x[:,-10:,3,3])
+#        print(x[:,-10:,3,3])
         x = convcaps2(x,ls[1]) #b,D*(4*4+1),3,3
-        print(x[:,-10:,0,0])
+#        print(x[:,-10:,0,0])
         x = classcaps(x,ls[2]).view(-1,10*16+10) #b,E*16+E     
         print(x[:,-E:])
         a = torch.sum(x)
         a.backward()
+        break
     
     #test Class Capsules
 #    x = F.sigmoid(Variable(torch.randn(b,32*17,3,3)))
