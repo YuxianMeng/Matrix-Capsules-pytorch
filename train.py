@@ -62,16 +62,18 @@ if __name__ == "__main__":
     model = CapsNet(A,B,C,D,E,r)
     if args.pretrained:
         model.load_state_dict(torch.load(args.pretrained))
+        m = 0.8
+        lambda_ = 0.9
     if args.use_cuda: 
         model.cuda()
         
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'max',patience = 1)
-    
     for epoch in range(args.num_epochs):
+        #Train
         print("Epoch {}".format(epoch))
         b = 0
-        epoch_acc = 0
+        correct = 0
         for data in train_loader:
             b += 1
             if lambda_ < 1:
@@ -92,17 +94,32 @@ if __name__ == "__main__":
             optimizer.step()
             #stats
             pred = out_labels.max(1)[1] #b
-            acc = pred.eq(labels).cpu().sum().data[0]/args.batch_size
-            epoch_acc += acc
+            acc = pred.eq(labels).cpu().sum().data[0]
+            correct += acc
             if b % args.print_freq == 0:                          
-                print("batch:{}, loss:{:.4f}, acc:{:.3f}".format(b, loss.data[0],acc))
-
-        print("Epoch{} acc:{:4}".format(epoch, epoch_acc))
-        scheduler.step(epoch_acc)
+                print("batch:{}, loss:{:.4f}, acc:{:}/{}".format(
+                        b, loss.data[0],acc, args.batch_size))
+        acc = correct/len(train_loader.dataset)
+        print("Epoch{} Train acc:{:4}".format(epoch, acc))
+        scheduler.step(acc)
         torch.save(model.state_dict(), "./model_{}.pth".format(epoch))
-            
-            
-            
-
-        
+        #Test
+        print('Testing...')
+        correct = 0
+        for data in test_loader:
+            imgs,labels = data #b,1,28,28; #b
+            imgs,labels = Variable(imgs),Variable(labels)
+            if args.use_cuda:
+                imgs = imgs.cuda()
+                labels = labels.cuda()
+            out = model(imgs,lambda_) #b,10,17
+            out_poses, out_labels = out[:,:-10],out[:,-10:] #b,16*10; b,10
+            loss = model.loss(out_labels, labels, m)
+            #stats
+            pred = out_labels.max(1)[1] #b
+            acc = pred.eq(labels).cpu().sum().data[0]
+            correct += acc
+        acc = correct/len(test_loader.dataset)
+        print("Epoch{} Test acc:{:4}".format(epoch, acc))
+ 
         
