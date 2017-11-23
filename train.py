@@ -55,74 +55,78 @@ class CapsNet(nn.Module):
 if __name__ == "__main__":
     args = get_args()
     train_loader, test_loader = get_dataloader(args)
-    use_cuda= True if args.use_cuda == "True" else False
+    use_cuda = args.use_cuda
+#    print(use_cuda, args.use_cuda, type(args.use_cuda))
     steps = len(train_loader.dataset)//args.batch_size
     lambda_ = 1e-3 #TODO:find a good schedule to increase lambda and m
     m = 0.2
-    A,B,C,D,E,r = 64,8,16,16,10,args.r # a small CapsNet
+#    A,B,C,D,E,r = 64,8,16,16,10,args.r # a small CapsNet
+    A,B,C,D,E,r = 32,32,32,32,10,args.r # a classic CapsNet
     model = CapsNet(A,B,C,D,E,r)
-    if args.pretrained:
-        model.load_state_dict(torch.load(args.pretrained))
-        m = 0.8
-        lambda_ = 0.9
-    if use_cuda:
-        print("activating cuda")
-        model.cuda()
-        
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'max',patience = 1)
-    for epoch in range(args.num_epochs):
-        #Train
-        print("Epoch {}".format(epoch))
-        b = 0
-        correct = 0
-        for data in train_loader:
-            b += 1
-            if lambda_ < 1:
-                lambda_ += 1e-1/steps
-            if m < 0.9:
-                m += 1e-1/steps
-            optimizer.zero_grad()
-            imgs,labels = data #b,1,28,28; #b
-            imgs,labels = Variable(imgs),Variable(labels)
-            if use_cuda:
-                imgs = imgs.cuda()
-                labels = labels.cuda()
-            out = model(imgs,lambda_) #b,10,17
-            out_poses, out_labels = out[:,:-10],out[:,-10:] #b,16*10; b,10
-            loss = model.loss(out_labels, labels, m)
-            torch.nn.utils.clip_grad_norm(model.parameters(), args.clip)
-            loss.backward()
-            optimizer.step()
-            #stats
-            pred = out_labels.max(1)[1] #b
-            acc = pred.eq(labels).cpu().sum().data[0]
-            correct += acc
-            if b % args.print_freq == 0:                          
-                print("batch:{}, loss:{:.4f}, acc:{:}/{}".format(
-                        b, loss.data[0],acc, args.batch_size))
-        acc = correct/len(train_loader.dataset)
-        print("Epoch{} Train acc:{:4}".format(epoch, acc))
-        scheduler.step(acc)
-        torch.save(model.state_dict(), "./model_{}.pth".format(epoch))
-        #Test
-        print('Testing...')
-        correct = 0
-        for data in test_loader:
-            imgs,labels = data #b,1,28,28; #b
-            imgs,labels = Variable(imgs),Variable(labels)
-            if use_cuda:
-                imgs = imgs.cuda()
-                labels = labels.cuda()
-            out = model(imgs,lambda_) #b,10,17
-            out_poses, out_labels = out[:,:-10],out[:,-10:] #b,16*10; b,10
-            loss = model.loss(out_labels, labels, m)
-            #stats
-            pred = out_labels.max(1)[1] #b
-            acc = pred.eq(labels).cpu().sum().data[0]
-            correct += acc
-        acc = correct/len(test_loader.dataset)
-        print("Epoch{} Test acc:{:4}".format(epoch, acc))
+    with torch.cuda.device(args.gpu):
+#        print(args.gpu, type(args.gpu))
+        if args.pretrained:
+            model.load_state_dict(torch.load(args.pretrained))
+            m = 0.8
+            lambda_ = 0.9
+        if use_cuda:
+            print("activating cuda")
+            model.cuda()
+            
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'max',patience = 1)
+        for epoch in range(args.num_epochs):
+            #Train
+            print("Epoch {}".format(epoch))
+            b = 0
+            correct = 0
+            for data in train_loader:
+                b += 1
+                if lambda_ < 1:
+                    lambda_ += 2e-1/steps
+                if m < 0.9:
+                    m += 2e-1/steps
+                optimizer.zero_grad()
+                imgs,labels = data #b,1,28,28; #b
+                imgs,labels = Variable(imgs),Variable(labels)
+                if use_cuda:
+                    imgs = imgs.cuda()
+                    labels = labels.cuda()
+                out = model(imgs,lambda_) #b,10,17
+                out_poses, out_labels = out[:,:-10],out[:,-10:] #b,16*10; b,10
+                loss = model.loss(out_labels, labels, m)
+                torch.nn.utils.clip_grad_norm(model.parameters(), args.clip)
+                loss.backward()
+                optimizer.step()
+                #stats
+                pred = out_labels.max(1)[1] #b
+                acc = pred.eq(labels).cpu().sum().data[0]
+                correct += acc
+                if b % args.print_freq == 0:                          
+                    print("batch:{}, loss:{:.4f}, acc:{:}/{}".format(
+                            b, loss.data[0],acc, args.batch_size))
+            acc = correct/len(train_loader.dataset)
+            print("Epoch{} Train acc:{:4}".format(epoch, acc))
+            scheduler.step(acc)
+            torch.save(model.state_dict(), "./model_{}.pth".format(epoch))
+            #Test
+            print('Testing...')
+            correct = 0
+            for data in test_loader:
+                imgs,labels = data #b,1,28,28; #b
+                imgs,labels = Variable(imgs),Variable(labels)
+                if use_cuda:
+                    imgs = imgs.cuda()
+                    labels = labels.cuda()
+                out = model(imgs,lambda_) #b,10,17
+                out_poses, out_labels = out[:,:-10],out[:,-10:] #b,16*10; b,10
+                loss = model.loss(out_labels, labels, m)
+                #stats
+                pred = out_labels.max(1)[1] #b
+                acc = pred.eq(labels).cpu().sum().data[0]
+                correct += acc
+            acc = correct/len(test_loader.dataset)
+            print("Epoch{} Test acc:{:4}".format(epoch, acc))
             
             
             
