@@ -10,7 +10,7 @@ In ```train.py```, I define a CapsNet in the paper using classes in ```Capsules.
 ```python train.py -batch_size=64 -use_cuda=True -lr=2e-2 -num_epochs=5 -r=3 -print_freq=5```
 
 ## Results
-The test accuracy is around 99% after 5 epochs of training with a small Capsule of A,B,C,D,E,r = 64,8,16,16,10,1. More results on different configurations are welcomed.
+The test accuracy is around 99% after 5 epochs of training with a small Capsule of A,B,C,D,r = 64,8,16,16,1. More results on different configurations are welcomed.
 
 
 ## TODO
