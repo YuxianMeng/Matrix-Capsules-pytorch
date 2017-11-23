@@ -55,7 +55,7 @@ class CapsNet(nn.Module):
 if __name__ == "__main__":
     args = get_args()
     train_loader, test_loader = get_dataloader(args)
-    use_cuda=(args.use_cuda==True)
+    use_cuda= True if args.use_cuda == "True" else False
     steps = len(train_loader.dataset)//args.batch_size
     lambda_ = 1e-3 #TODO:find a good schedule to increase lambda and m
     m = 0.2
@@ -66,6 +66,7 @@ if __name__ == "__main__":
         m = 0.8
         lambda_ = 0.9
     if use_cuda:
+        print("activating cuda")
         model.cuda()
         
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -123,9 +124,3 @@ if __name__ == "__main__":
         acc = correct/len(test_loader.dataset)
         print("Epoch{} Test acc:{:4}".format(epoch, acc))
             
-            
-            
-            
-
-        
-        
