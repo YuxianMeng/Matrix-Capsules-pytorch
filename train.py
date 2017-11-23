@@ -60,8 +60,8 @@ if __name__ == "__main__":
     steps = len(train_loader.dataset)//args.batch_size
     lambda_ = 1e-3 #TODO:find a good schedule to increase lambda and m
     m = 0.2
-#    A,B,C,D,E,r = 64,8,16,16,10,args.r # a small CapsNet
-    A,B,C,D,E,r = 32,32,32,32,10,args.r # a classic CapsNet
+    A,B,C,D,E,r = 64,8,16,16,10,args.r # a small CapsNet
+#    A,B,C,D,E,r = 32,32,32,32,10,args.r # a classic CapsNet
     model = CapsNet(A,B,C,D,E,r)
     with torch.cuda.device(args.gpu):
 #        print(args.gpu, type(args.gpu))
