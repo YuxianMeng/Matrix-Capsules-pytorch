@@ -17,4 +17,5 @@ The test accuracy is around 97.6% after 1 epoch and 99% after 5 epochs of traini
 
 ## TODO
 * using more matrix operation rather than ```for``` iteration in E-step of ```Capsules.py```.
+* make capsules work when height_in != width_in
 
