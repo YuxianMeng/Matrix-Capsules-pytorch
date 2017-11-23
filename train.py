@@ -56,7 +56,6 @@ if __name__ == "__main__":
     args = get_args()
     train_loader, test_loader = get_dataloader(args)
     use_cuda = args.use_cuda
-#    print(use_cuda, args.use_cuda, type(args.use_cuda))
     steps = len(train_loader.dataset)//args.batch_size
     lambda_ = 1e-3 #TODO:find a good schedule to increase lambda and m
     m = 0.2
