@@ -10,13 +10,10 @@ In ```train.py```, I define a CapsNet in the paper using classes in ```Capsules.
 ```python train.py -batch_size=64 -lr=2e-2 -num_epochs=5 -r=1 -print_freq=5```.
 
 Note:
-
-argument ```use_cuda``` in ```utils.py``` has been replaced by ```-disable_cuda```.
-
 more args can be found in ```utils.py```, and if you want to change A,B,C,D, go to ```line 62``` of ```train.py```
 
 ## Results
-The test accuracy is around 97.6% after 1 epoch and 98.7% after 2 epochs of training with a small Capsule of A,B,C,D,r = 64,8,16,16,1. More results on different configurations are welcomed.
+The test accuracy is around 97.6% after 1 epoch and 98.7% after 2 epochs of training with a small Capsule of A,B,C,D,r = 64,8,16,16,1. After 30 epochs of training, the best acc is around 99.3%. More results on different configurations are welcomed.
 
 
 ## TODO
